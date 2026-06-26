@@ -20,7 +20,7 @@ type Mode2D = "scanner" | "stage" | "combined";
 type ModeAxis = "X" | "Y" | "XY";
 
 function Index() {
-  const data = useMemo(() => buildDemoData(4000, 1e-4), []);
+  const data = useMemo(() => buildDemoData(4000, 1e-5), []);
 
   const [xyToggles, setXyToggles] = useState<XYToggles>({
     pattern: true,

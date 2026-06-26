@@ -7,7 +7,7 @@ type Mode2D = "scanner" | "stage" | "combined";
 type ModeAxis = "X" | "Y" | "XY";
 
 export function IndexPage() {
-  const data = useMemo(() => buildDemoData(4000, 1e-4), []);
+  const data = useMemo(() => buildDemoData(4000, 1e-5), []);
 
   const [xyToggles, setXyToggles] = useState<XYToggles>({
     pattern: true,
@@ -37,15 +37,20 @@ export function IndexPage() {
 
   const t = data.t[cursorIdx] ?? 0;
 
-  const effectiveTime: TimeToggles = {
-    ...timeToggles,
-    xPattern: timeToggles.xPattern && (axisMode === "X" || axisMode === "XY"),
-    xSimulation: timeToggles.xSimulation && (axisMode === "X" || axisMode === "XY"),
-    xFeedback: timeToggles.xFeedback && (axisMode === "X" || axisMode === "XY"),
-    yPattern: timeToggles.yPattern && (axisMode === "Y" || axisMode === "XY"),
-    ySimulation: timeToggles.ySimulation && (axisMode === "Y" || axisMode === "XY"),
-    yFeedback: timeToggles.yFeedback && (axisMode === "Y" || axisMode === "XY"),
-  };
+  // Memoize so the object identity is stable across cursor-driven re-renders;
+  // otherwise TimePlots would rebuild (and reset zoom) on every hover.
+  const effectiveTime: TimeToggles = useMemo(
+    () => ({
+      ...timeToggles,
+      xPattern: timeToggles.xPattern && (axisMode === "X" || axisMode === "XY"),
+      xSimulation: timeToggles.xSimulation && (axisMode === "X" || axisMode === "XY"),
+      xFeedback: timeToggles.xFeedback && (axisMode === "X" || axisMode === "XY"),
+      yPattern: timeToggles.yPattern && (axisMode === "Y" || axisMode === "XY"),
+      ySimulation: timeToggles.ySimulation && (axisMode === "Y" || axisMode === "XY"),
+      yFeedback: timeToggles.yFeedback && (axisMode === "Y" || axisMode === "XY"),
+    }),
+    [timeToggles, axisMode],
+  );
 
   return (
     <div className="min-h-screen bg-zinc-50 text-zinc-900">

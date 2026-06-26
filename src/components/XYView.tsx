@@ -198,7 +198,7 @@ export function XYView({ data, toggles, cursorIdx, onHoverIdx }: Props) {
         `t = ${(t * 1e6).toFixed(1)} µs`,
       ];
       const bw = 160, bh = 64;
-      const bx = w - bw - 16, by = h - bh - 16;
+      const bx = w - bw - 16, by = 16;
       ctx.fillStyle = "rgba(255,255,255,0.95)";
       ctx.strokeStyle = "#111";
       ctx.lineWidth = 1;
@@ -323,7 +323,21 @@ export function XYView({ data, toggles, cursorIdx, onHoverIdx }: Props) {
 
   // Pan with right-mouse or shift+left drag.
   const panRef = useRef<{ startX: number; startY: number; view: { xMin: number; xMax: number; yMin: number; yMax: number } } | null>(null);
+  // Timestamp of the last middle-button (wheel) click, for double-click detection.
+  const lastMidRef = useRef(0);
   function onMouseDown(e: React.MouseEvent<HTMLCanvasElement>) {
+    if (e.button === 1) {
+      // Middle (wheel) button: double-click resets the zoom/pan to the field.
+      e.preventDefault();
+      const now = Date.now();
+      if (now - lastMidRef.current < 400) {
+        lastMidRef.current = 0;
+        onDoubleClick();
+      } else {
+        lastMidRef.current = now;
+      }
+      return;
+    }
     if (!(e.button === 2 || (e.button === 0 && e.shiftKey))) return;
     e.preventDefault();
     const v = viewRef.current;
@@ -366,10 +380,11 @@ export function XYView({ data, toggles, cursorIdx, onHoverIdx }: Props) {
         onMouseDown={onMouseDown}
         onMouseUp={endPan}
         onDoubleClick={onDoubleClick}
+        onAuxClick={(e) => e.preventDefault()}
         onContextMenu={(e) => e.preventDefault()}
       />
       <div className="absolute bottom-2 left-2 text-[10px] text-gray-500 bg-white/70 px-1.5 py-0.5 rounded pointer-events-none">
-        scroll to zoom · right-drag or shift-drag to pan · double-click to reset
+        scroll to zoom · right-drag or shift-drag to pan · double-click wheel to reset
       </div>
     </div>
   );
