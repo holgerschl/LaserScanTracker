@@ -257,6 +257,14 @@ export function XYView({ data, toggles, cursorIdx, onHoverIdx }: Props) {
 
   useEffect(() => { draw(); /* eslint-disable-next-line */ }, [data, toggles, cursorIdx]);
 
+  // Reset the zoom/pan rectangle whenever the underlying field bounds change
+  // (e.g. switching between scanner/stage/combined domains).
+  useEffect(() => {
+    viewRef.current = { ...data.field };
+    draw();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data.field.xMin, data.field.xMax, data.field.yMin, data.field.yMax]);
+
   // Native (non-passive) wheel listener so preventDefault works for zoom.
   useEffect(() => {
     const c = canvasRef.current;

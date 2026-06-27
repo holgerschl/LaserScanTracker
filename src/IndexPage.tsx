@@ -1,10 +1,10 @@
 import { useMemo, useState } from "react";
-import { buildDemoData } from "@/lib/demoData";
+import { applyDomain, buildDemoData, type DomainMode } from "@/lib/demoData";
 import { XYView, type XYToggles } from "@/components/XYView";
 import { TimePlots, type TimeToggles } from "@/components/TimePlots";
+import { ResizableColumns } from "@/components/ResizableColumns";
 
-type Mode2D = "scanner" | "stage" | "combined";
-type ModeAxis = "X" | "Y" | "XY";
+type Mode2D = DomainMode;
 
 export function IndexPage() {
   const data = useMemo(() => buildDemoData(4000, 1e-5), []);
@@ -31,26 +31,16 @@ export function IndexPage() {
     laserPower: true,
   });
 
-  const [axisMode, setAxisMode] = useState<ModeAxis>("XY");
-  const [domainMode, setDomainMode] = useState<Mode2D>("scanner");
+  const [domainMode, setDomainMode] = useState<Mode2D>("combined");
   const [cursorIdx, setCursorIdx] = useState<number>(530);
+
+  // Domain-filtered dataset: scanner = high-pass residual, stage = lowpass,
+  // combined = original. Memoized so it's only recomputed when the mode changes.
+  const viewData = useMemo(() => applyDomain(data, domainMode), [data, domainMode]);
 
   const t = data.t[cursorIdx] ?? 0;
 
-  // Memoize so the object identity is stable across cursor-driven re-renders;
-  // otherwise TimePlots would rebuild (and reset zoom) on every hover.
-  const effectiveTime: TimeToggles = useMemo(
-    () => ({
-      ...timeToggles,
-      xPattern: timeToggles.xPattern && (axisMode === "X" || axisMode === "XY"),
-      xSimulation: timeToggles.xSimulation && (axisMode === "X" || axisMode === "XY"),
-      xFeedback: timeToggles.xFeedback && (axisMode === "X" || axisMode === "XY"),
-      yPattern: timeToggles.yPattern && (axisMode === "Y" || axisMode === "XY"),
-      ySimulation: timeToggles.ySimulation && (axisMode === "Y" || axisMode === "XY"),
-      yFeedback: timeToggles.yFeedback && (axisMode === "Y" || axisMode === "XY"),
-    }),
-    [timeToggles, axisMode],
-  );
+  const effectiveTime: TimeToggles = timeToggles;
 
   return (
     <div className="min-h-screen bg-zinc-50 text-zinc-900">
@@ -60,68 +50,76 @@ export function IndexPage() {
           <p className="text-xs text-zinc-500">Demo dataset: marking pattern (circle + hexagon) with simulated dynamics, controller output, feedback and laser signals.</p>
         </div>
         <div className="flex items-center gap-4 text-xs">
-          <ModeToggle label="Axis" value={axisMode} options={["X","Y","XY"] as const} onChange={setAxisMode} />
           <ModeToggle label="Domain" value={domainMode} options={["scanner","stage","combined"] as const} onChange={setDomainMode} />
           <div className="font-mono text-zinc-600">t = {(t*1e6).toFixed(1)} µs</div>
         </div>
       </header>
 
-      <div className="grid grid-cols-[260px_1fr_460px] gap-2 p-2 h-[calc(100vh-49px)]">
-        <aside className="flex flex-col gap-3 overflow-auto">
-          <Panel title="2D view — datasets">
-            <Check label="Input trajectory (pattern)" color="#111" checked={xyToggles.pattern} onChange={(v)=>setXyToggles(s=>({...s,pattern:v}))} />
-            <Check label="Simulation (x,y)" color="#2563eb" checked={xyToggles.simulation} onChange={(v)=>setXyToggles(s=>({...s,simulation:v}))} />
-            <Check label="Controller output" color="#16a34a" checked={xyToggles.controller} onChange={(v)=>setXyToggles(s=>({...s,controller:v}))} />
-            <Check label="Feedback (measured)" color="#dc2626" checked={xyToggles.feedback} onChange={(v)=>setXyToggles(s=>({...s,feedback:v}))} />
-            <div className="my-2 border-t" />
-            <Check label="Highlight laser ON" color="#f59e0b" checked={xyToggles.laserHighlight} onChange={(v)=>setXyToggles(s=>({...s,laserHighlight:v}))} />
-          </Panel>
+      <div className="h-[calc(100vh-49px)] p-2">
+        <ResizableColumns
+          storageKey="lst-main-layout-v1"
+          defaultFractions={[0.2, 0.45, 0.35]}
+          minSizes={[180, 220, 220]}
+          left={
+            <aside className="flex h-full flex-col gap-3 overflow-auto pr-2">
+              <Panel title="2D view — datasets">
+                <Check label="Input trajectory (pattern)" color="#111" checked={xyToggles.pattern} onChange={(v)=>setXyToggles(s=>({...s,pattern:v}))} />
+                <Check label="Simulation (x,y)" color="#2563eb" checked={xyToggles.simulation} onChange={(v)=>setXyToggles(s=>({...s,simulation:v}))} />
+                <Check label="Controller output" color="#16a34a" checked={xyToggles.controller} onChange={(v)=>setXyToggles(s=>({...s,controller:v}))} />
+                <Check label="Feedback (measured)" color="#dc2626" checked={xyToggles.feedback} onChange={(v)=>setXyToggles(s=>({...s,feedback:v}))} />
+                <div className="my-2 border-t" />
+                <Check label="Highlight laser ON" color="#f59e0b" checked={xyToggles.laserHighlight} onChange={(v)=>setXyToggles(s=>({...s,laserHighlight:v}))} />
+              </Panel>
 
-          <Panel title="1D plots — signals">
-            <SubLabel>X</SubLabel>
-            <Check label="x pattern" color="#111" checked={timeToggles.xPattern} onChange={(v)=>setTimeToggles(s=>({...s,xPattern:v}))} />
-            <Check label="x simulation" color="#2563eb" checked={timeToggles.xSimulation} onChange={(v)=>setTimeToggles(s=>({...s,xSimulation:v}))} />
-            <Check label="x feedback" color="#dc2626" checked={timeToggles.xFeedback} onChange={(v)=>setTimeToggles(s=>({...s,xFeedback:v}))} />
-            <SubLabel>Y</SubLabel>
-            <Check label="y pattern" color="#111" checked={timeToggles.yPattern} onChange={(v)=>setTimeToggles(s=>({...s,yPattern:v}))} />
-            <Check label="y simulation" color="#2563eb" checked={timeToggles.ySimulation} onChange={(v)=>setTimeToggles(s=>({...s,ySimulation:v}))} />
-            <Check label="y feedback" color="#dc2626" checked={timeToggles.yFeedback} onChange={(v)=>setTimeToggles(s=>({...s,yFeedback:v}))} />
-            <SubLabel>Z</SubLabel>
-            <Check label="z set values" color="#111" checked={timeToggles.zSet} onChange={(v)=>setTimeToggles(s=>({...s,zSet:v}))} />
-            <Check label="z feedback" color="#dc2626" checked={timeToggles.zFeedback} onChange={(v)=>setTimeToggles(s=>({...s,zFeedback:v}))} />
-            <SubLabel>Laser</SubLabel>
-            <Check label="laser switching" color="#f59e0b" checked={timeToggles.laserSwitch} onChange={(v)=>setTimeToggles(s=>({...s,laserSwitch:v}))} />
-            <Check label="laser power" color="#16a34a" checked={timeToggles.laserPower} onChange={(v)=>setTimeToggles(s=>({...s,laserPower:v}))} />
-          </Panel>
+              <Panel title="1D plots — signals">
+                <SubLabel>X</SubLabel>
+                <Check label="x pattern" color="#111" checked={timeToggles.xPattern} onChange={(v)=>setTimeToggles(s=>({...s,xPattern:v}))} />
+                <Check label="x simulation" color="#2563eb" checked={timeToggles.xSimulation} onChange={(v)=>setTimeToggles(s=>({...s,xSimulation:v}))} />
+                <Check label="x feedback" color="#dc2626" checked={timeToggles.xFeedback} onChange={(v)=>setTimeToggles(s=>({...s,xFeedback:v}))} />
+                <SubLabel>Y</SubLabel>
+                <Check label="y pattern" color="#111" checked={timeToggles.yPattern} onChange={(v)=>setTimeToggles(s=>({...s,yPattern:v}))} />
+                <Check label="y simulation" color="#2563eb" checked={timeToggles.ySimulation} onChange={(v)=>setTimeToggles(s=>({...s,ySimulation:v}))} />
+                <Check label="y feedback" color="#dc2626" checked={timeToggles.yFeedback} onChange={(v)=>setTimeToggles(s=>({...s,yFeedback:v}))} />
+                <SubLabel>Z</SubLabel>
+                <Check label="z set values" color="#111" checked={timeToggles.zSet} onChange={(v)=>setTimeToggles(s=>({...s,zSet:v}))} />
+                <Check label="z feedback" color="#dc2626" checked={timeToggles.zFeedback} onChange={(v)=>setTimeToggles(s=>({...s,zFeedback:v}))} />
+                <SubLabel>Laser</SubLabel>
+                <Check label="laser switching" color="#f59e0b" checked={timeToggles.laserSwitch} onChange={(v)=>setTimeToggles(s=>({...s,laserSwitch:v}))} />
+                <Check label="laser power" color="#16a34a" checked={timeToggles.laserPower} onChange={(v)=>setTimeToggles(s=>({...s,laserPower:v}))} />
+              </Panel>
 
-          <Panel title="Cursor">
-            <input
-              type="range"
-              min={0}
-              max={data.t.length - 1}
-              value={cursorIdx}
-              onChange={(e)=>setCursorIdx(Number(e.target.value))}
-              className="w-full"
-            />
-            <div className="mt-1 font-mono text-xs">idx {cursorIdx} · t {(t*1e6).toFixed(1)}µs</div>
-          </Panel>
+              <Panel title="Cursor">
+                <input
+                  type="range"
+                  min={0}
+                  max={data.t.length - 1}
+                  value={cursorIdx}
+                  onChange={(e)=>setCursorIdx(Number(e.target.value))}
+                  className="w-full"
+                />
+                <div className="mt-1 font-mono text-xs">idx {cursorIdx} · t {(t*1e6).toFixed(1)}µs</div>
+              </Panel>
 
-          <Panel title="Legend">
-            <Legend swatch="#111" label="Pattern (commanded)" />
-            <Legend swatch="#2563eb" label="Simulation" />
-            <Legend swatch="#16a34a" label="Controller / power" />
-            <Legend swatch="#dc2626" label="Feedback / scanner field" />
-            <Legend swatch="#f59e0b" label="Laser ON" />
-          </Panel>
-        </aside>
-
-        <section className="min-w-0 min-h-0">
-          <XYView data={data} toggles={xyToggles} cursorIdx={cursorIdx} onHoverIdx={(i)=>{ if (i!=null) setCursorIdx(i); }} />
-        </section>
-
-        <section className="overflow-auto bg-white border rounded-md p-2">
-          <TimePlots data={data} toggles={effectiveTime} cursorIdx={cursorIdx} onCursorIdx={setCursorIdx} />
-        </section>
+              <Panel title="Legend">
+                <Legend swatch="#111" label="Pattern (commanded)" />
+                <Legend swatch="#2563eb" label="Simulation" />
+                <Legend swatch="#16a34a" label="Controller / power" />
+                <Legend swatch="#dc2626" label="Feedback / scanner field" />
+                <Legend swatch="#f59e0b" label="Laser ON" />
+              </Panel>
+            </aside>
+          }
+          middle={
+            <section className="h-full min-w-0 min-h-0">
+              <XYView data={viewData} toggles={xyToggles} cursorIdx={cursorIdx} onHoverIdx={(i)=>{ if (i!=null) setCursorIdx(i); }} />
+            </section>
+          }
+          right={
+            <section className="h-full overflow-auto bg-white border rounded-md p-2">
+              <TimePlots data={viewData} toggles={effectiveTime} cursorIdx={cursorIdx} onCursorIdx={setCursorIdx} />
+            </section>
+          }
+        />
       </div>
     </div>
   );

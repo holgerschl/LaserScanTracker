@@ -196,3 +196,96 @@ export function buildDemoData(N = 4000, dt = 1e-4): DemoData {
     field: { xMin: -8, xMax: 8, yMin: -8, yMax: 8 },
   };
 }
+
+// --- Domain split (scanner / stage / combined) -----------------------------
+//
+// In a real laser machining system the commanded trajectory is split across
+// two actuators by a complementary filter:
+//   stage   = lowpass(combined)    // slow, large-amplitude translation stage
+//   scanner = combined - stage     // fast, small-amplitude galvo deflection
+// At the workpiece, stage + scanner reproduces the original ("combined")
+// trajectory. We mock this behavior with a single first-order lag whose
+// alpha controls the corner frequency.
+
+export type DomainMode = "scanner" | "stage" | "combined";
+
+function subtract(a: Float64Array, b: Float64Array): Float64Array {
+  const out = new Float64Array(a.length);
+  for (let i = 0; i < a.length; i++) out[i] = a[i] - b[i];
+  return out;
+}
+
+function splitSeries(s: Dataset, mode: DomainMode, alpha: number): Dataset {
+  if (mode === "combined") return s;
+  const lpX = lag(s.x, alpha);
+  const lpY = lag(s.y, alpha);
+  if (mode === "stage") {
+    return { t: s.t, x: lpX, y: lpY, z: s.z, jumps: s.jumps };
+  }
+  // scanner = original − slow stage component
+  return {
+    t: s.t,
+    x: subtract(s.x, lpX),
+    y: subtract(s.y, lpY),
+    z: s.z,
+    jumps: s.jumps,
+  };
+}
+
+function bounds(xs: Float64Array, ys: Float64Array, padFrac = 0.15) {
+  let xMin = +Infinity, xMax = -Infinity, yMin = +Infinity, yMax = -Infinity;
+  for (let i = 0; i < xs.length; i++) {
+    if (xs[i] < xMin) xMin = xs[i];
+    if (xs[i] > xMax) xMax = xs[i];
+    if (ys[i] < yMin) yMin = ys[i];
+    if (ys[i] > yMax) yMax = ys[i];
+  }
+  const dx = Math.max(0.1, (xMax - xMin) * padFrac);
+  const dy = Math.max(0.1, (yMax - yMin) * padFrac);
+  // Square the view so the XY plot keeps unit aspect.
+  const side = Math.max(xMax - xMin + 2 * dx, yMax - yMin + 2 * dy);
+  const cx = (xMin + xMax) / 2;
+  const cy = (yMin + yMax) / 2;
+  return {
+    xMin: cx - side / 2,
+    xMax: cx + side / 2,
+    yMin: cy - side / 2,
+    yMax: cy + side / 2,
+  };
+}
+
+/**
+ * Produce a domain-filtered copy of the dataset.
+ *
+ * - "combined": the original trajectory (stage + scanner).
+ * - "stage":    only the slow lowpass component the translation stage would follow.
+ * - "scanner":  only the fast residual the galvo scanner would deflect.
+ *
+ * `alpha` is the first-order-lag coefficient used for the lowpass; smaller =>
+ * slower stage motion / more action assigned to the scanner.
+ */
+export function applyDomain(d: DemoData, mode: DomainMode, alpha = 0.015): DemoData {
+  if (mode === "combined") return d;
+  const pattern = { ...splitSeries(d.pattern, mode, alpha), jumps: d.pattern.jumps };
+  const simulation = splitSeries(d.simulation, mode, alpha);
+  const controller = splitSeries(d.controller, mode, alpha);
+  const feedback = splitSeries(d.feedback, mode, alpha);
+
+  // For "stage" the trajectory uses the full pattern range, so rescale the
+  // displayed field rectangle to fit it. For "scanner" the scanner's physical
+  // field stays meaningful.
+  const field = mode === "stage"
+    ? bounds(pattern.x, pattern.y, 0.15)
+    : d.field;
+
+  return {
+    t: d.t,
+    pattern,
+    simulation,
+    controller,
+    feedback,
+    laserOn: d.laserOn,
+    laserPower: d.laserPower,
+    field,
+  };
+}
