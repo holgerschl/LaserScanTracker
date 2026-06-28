@@ -289,3 +289,43 @@ export function applyDomain(d: DemoData, mode: DomainMode, alpha = 0.015): DemoD
     field,
   };
 }
+
+// --- Error view ------------------------------------------------------------
+//
+// Replace each signal with its deviation from the commanded pattern, so the
+// time plots show "actual − set" instead of absolute coordinates. The pattern
+// itself collapses to a flat zero reference line. Laser switching / power are
+// left untouched (no setpoint analogue). XY view is not affected — it keeps
+// reading absolute coordinates.
+
+export type SignalMode = "absolute" | "error";
+
+function diff(a: Float64Array, b: Float64Array): Float64Array {
+  const out = new Float64Array(a.length);
+  for (let i = 0; i < a.length; i++) out[i] = a[i] - b[i];
+  return out;
+}
+
+export function toErrorData(d: DemoData): DemoData {
+  const p = d.pattern;
+  const zeroX = new Float64Array(p.x.length);
+  const zeroY = new Float64Array(p.y.length);
+  const zeroZ = new Float64Array(p.z.length);
+  const errSeries = (s: Dataset): Dataset => ({
+    t: s.t,
+    x: diff(s.x, p.x),
+    y: diff(s.y, p.y),
+    z: diff(s.z, p.z),
+    jumps: s.jumps,
+  });
+  return {
+    t: d.t,
+    pattern: { t: p.t, x: zeroX, y: zeroY, z: zeroZ, jumps: p.jumps },
+    simulation: errSeries(d.simulation),
+    controller: errSeries(d.controller),
+    feedback: errSeries(d.feedback),
+    laserOn: d.laserOn,
+    laserPower: d.laserPower,
+    field: d.field,
+  };
+}

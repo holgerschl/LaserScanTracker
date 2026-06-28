@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import uPlot from "uplot";
 import "uplot/dist/uPlot.min.css";
-import type { DemoData } from "@/lib/demoData";
+import type { DemoData, SignalMode } from "@/lib/demoData";
 
 export type TimeToggles = {
   xPattern: boolean;
@@ -21,6 +21,7 @@ type Props = {
   toggles: TimeToggles;
   cursorIdx: number;
   onCursorIdx: (i: number) => void;
+  signalMode: SignalMode;
 };
 
 const SYNC_KEY = "laser-vis-sync";
@@ -135,6 +136,7 @@ function makePlot(
   onCursor: (i: number) => void,
   getCursorIdx: () => number,
   yRange?: [number, number],
+  onXZoom?: (min: number, max: number) => void,
 ): uPlot {
   const data: uPlot.AlignedData = [
     Array.from(t) as unknown as number[],
@@ -181,13 +183,43 @@ function makePlot(
           if (idx != null && idx >= 0) onCursor(idx);
         },
       ],
+      setScale: [
+        (u, key) => {
+          if (key !== "x" || !onXZoom) return;
+          const { min, max } = u.scales.x;
+          if (min != null && max != null) onXZoom(min, max);
+        },
+      ],
+      ready: [
+        (u) => {
+          if (!onXZoom) return;
+          const { min, max } = u.scales.x;
+          if (min != null && max != null) onXZoom(min, max);
+        },
+      ],
     },
     plugins: [wheelZoomPlugin(), cursorLinePlugin(getCursorIdx)],
   };
   return new uPlot(opts, data, el);
 }
 
-export function TimePlots({ data, toggles, cursorIdx, onCursorIdx }: Props) {
+// RMS/PV of `y[i]` for samples whose time falls inside [tmin, tmax].
+function statsInWindow(t: Float64Array, y: Float64Array, tmin: number, tmax: number) {
+  let sum2 = 0, n = 0, min = Infinity, max = -Infinity;
+  for (let i = 0; i < t.length; i++) {
+    const tv = t[i];
+    if (tv < tmin || tv > tmax) continue;
+    const v = y[i];
+    if (!Number.isFinite(v)) continue;
+    sum2 += v * v; n++;
+    if (v < min) min = v;
+    if (v > max) max = v;
+  }
+  if (n === 0) return null;
+  return { rms: Math.sqrt(sum2 / n), pv: max - min };
+}
+
+export function TimePlots({ data, toggles, cursorIdx, onCursorIdx, signalMode }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const plotsRef = useRef<uPlot[]>([]);
   // Live cursor index read by each plot's draw hook (the dashed marker line).
@@ -197,6 +229,13 @@ export function TimePlots({ data, toggles, cursorIdx, onCursorIdx }: Props) {
   const readoutsRef = useRef<
     Array<{ tSpan: HTMLSpanElement; items: { span: HTMLSpanElement; label: string; data: Float64Array }[] }>
   >([]);
+  // Per-plot RMS/PV stats elements (one per X/Y/Z plot, only in error mode).
+  // Each entry holds the DOM node and the (non-pattern) series that feed it.
+  const statsRef = useRef<
+    Array<{ title: string; el: HTMLSpanElement; sources: { name: string; data: Float64Array; stroke: string }[] }>
+  >([]);
+  // Current x-zoom window per plot title (in seconds).
+  const xZoomRef = useRef<Map<string, [number, number]>>(new Map());
   // Titles of graphs the user collapsed; persists across rebuilds (toggles).
   const hiddenGraphsRef = useRef<Set<string>>(new Set());
 
@@ -211,8 +250,47 @@ export function TimePlots({ data, toggles, cursorIdx, onCursorIdx }: Props) {
     plotsRef.current.forEach((p) => p.destroy());
     plotsRef.current = [];
     readoutsRef.current = [];
+    statsRef.current = [];
+    xZoomRef.current = new Map();
 
     const t = data.t;
+    const isErr = signalMode === "error";
+
+    // Recompute the per-plot RMS/PV stats whenever a zoom changes. Cheap O(N)
+    // scans — fine for the ~4k samples we have.
+    const recomputeStats = () => {
+      if (!isErr) return;
+      for (const s of statsRef.current) {
+        const win = xZoomRef.current.get(s.title);
+        if (!win) { s.el.textContent = ""; continue; }
+        const [tmin, tmax] = win;
+        const parts: string[] = [];
+        for (const src of s.sources) {
+          const st = statsInWindow(t, src.data, tmin, tmax);
+          if (!st) continue;
+          parts.push(
+            `<span style="color:${src.stroke}">RMS ${src.name}: ${st.rms.toFixed(3)} · PV: ${st.pv.toFixed(3)}</span>`,
+          );
+        }
+        s.el.innerHTML = parts.join(" · ");
+      }
+    };
+
+    // In error mode, derive radial error series sqrt(x² + y²) for sim/feedback
+    // so they can be plotted as their own time-series with integrated stats.
+    const buildRadial = (xa: Float64Array, ya: Float64Array) => {
+      const out = new Float64Array(xa.length);
+      for (let i = 0; i < xa.length; i++) out[i] = Math.hypot(xa[i], ya[i]);
+      return out;
+    };
+    const radialSim =
+      isErr && toggles.xSimulation && toggles.ySimulation
+        ? buildRadial(data.simulation.x, data.simulation.y)
+        : null;
+    const radialFb =
+      isErr && toggles.xFeedback && toggles.yFeedback
+        ? buildRadial(data.feedback.x, data.feedback.y)
+        : null;
 
     const groups: Array<{
       title: string;
@@ -247,6 +325,14 @@ export function TimePlots({ data, toggles, cursorIdx, onCursorIdx }: Props) {
         ].filter(Boolean) as any,
       },
       {
+        title: "√(x²+y²) vs time (mm)",
+        show: isErr && (radialSim != null || radialFb != null),
+        series: [
+          radialSim && { label: "sim", stroke: "#2563eb", data: radialSim },
+          radialFb && { label: "feedback", stroke: "#dc2626", data: radialFb, width: 1 },
+        ].filter(Boolean) as any,
+      },
+      {
         title: "Laser switching",
         show: toggles.laserSwitch,
         series: [{ label: "laser on", stroke: "#f59e0b", data: Float64Array.from(data.laserOn) }],
@@ -267,7 +353,11 @@ export function TimePlots({ data, toggles, cursorIdx, onCursorIdx }: Props) {
       root.appendChild(wrapper);
       const el = document.createElement("div");
       wrapper.appendChild(el);
-      const p = makePlot(el, g.title, g.series, t, onCursorIdx, () => cursorIdxRef.current, g.yRange);
+      const onXZoom = (min: number, max: number) => {
+        xZoomRef.current.set(g.title, [min, max]);
+        recomputeStats();
+      };
+      const p = makePlot(el, g.title, g.series, t, onCursorIdx, () => cursorIdxRef.current, g.yRange, onXZoom);
       plotsRef.current.push(p);
 
       // Footer beneath each plot: a checkbox to hide/show the whole graph,
@@ -300,12 +390,34 @@ export function TimePlots({ data, toggles, cursorIdx, onCursorIdx }: Props) {
         return { span, label: s.label, data: s.data };
       });
       footer.appendChild(readout);
+
+      // RMS / PV stats line. Only populated in error mode; otherwise we leave
+      // an empty span so the DOM layout stays consistent across mode toggles.
+      const statsEl = document.createElement("span");
+      statsEl.className = "ml-auto flex flex-wrap items-center gap-x-3 gap-y-0.5 text-zinc-500";
+      footer.appendChild(statsEl);
+
       wrapper.appendChild(footer);
       readoutsRef.current.push({ tSpan, items });
+
+      if (isErr && /^(X|Y|Z|√)/.test(g.title)) {
+        // In error mode the "pattern" / "set" series are identically zero by
+        // construction (see toErrorData), so we only show stats for the actual
+        // error sources (sim / feedback).
+        const sources = g.series
+          .filter((s) => !/(pattern|set)$/.test(s.label))
+          .map((s) => ({
+            name: s.label.replace(/^[xyz]\s+/, ""),
+            data: s.data,
+            stroke: s.stroke,
+          }));
+        statsRef.current.push({ title: g.title, el: statsEl, sources });
+      }
 
       const applyHidden = (hidden: boolean) => {
         el.style.display = hidden ? "none" : "";
         readout.style.display = hidden ? "none" : "";
+        statsEl.style.display = hidden ? "none" : "";
       };
       applyHidden(hiddenGraphsRef.current.has(g.title));
       cb.addEventListener("change", () => {
@@ -345,7 +457,7 @@ export function TimePlots({ data, toggles, cursorIdx, onCursorIdx }: Props) {
       plotsRef.current = [];
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, togglesKey]);
+  }, [data, togglesKey, signalMode]);
 
   // Reflect external cursor changes (from XY hover): repaint the dashed marker
   // line at the new index and update each plot's value readout.

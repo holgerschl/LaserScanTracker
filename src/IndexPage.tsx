@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { applyDomain, buildDemoData, type DomainMode } from "@/lib/demoData";
+import { applyDomain, buildDemoData, toErrorData, type DomainMode, type SignalMode } from "@/lib/demoData";
 import { XYView, type XYToggles } from "@/components/XYView";
 import { TimePlots, type TimeToggles } from "@/components/TimePlots";
 import { ResizableColumns } from "@/components/ResizableColumns";
@@ -32,11 +32,19 @@ export function IndexPage() {
   });
 
   const [domainMode, setDomainMode] = useState<Mode2D>("combined");
+  const [signalMode, setSignalMode] = useState<SignalMode>("absolute");
   const [cursorIdx, setCursorIdx] = useState<number>(530);
 
   // Domain-filtered dataset: scanner = high-pass residual, stage = lowpass,
   // combined = original. Memoized so it's only recomputed when the mode changes.
   const viewData = useMemo(() => applyDomain(data, domainMode), [data, domainMode]);
+
+  // Time-plot dataset: in "error" mode, each signal is the deviation from the
+  // commanded pattern. The XY view always shows absolute coordinates.
+  const timeData = useMemo(
+    () => (signalMode === "error" ? toErrorData(viewData) : viewData),
+    [viewData, signalMode],
+  );
 
   const t = data.t[cursorIdx] ?? 0;
 
@@ -47,10 +55,10 @@ export function IndexPage() {
       <header className="border-b bg-white px-4 py-2 flex items-center justify-between">
         <div>
           <h1 className="text-base font-semibold">Laser Scan Trajectory Visualizer</h1>
-          <p className="text-xs text-zinc-500">Demo dataset: marking pattern (circle + hexagon) with simulated dynamics, controller output, feedback and laser signals.</p>
         </div>
         <div className="flex items-center gap-4 text-xs">
           <ModeToggle label="Domain" value={domainMode} options={["scanner","stage","combined"] as const} onChange={setDomainMode} />
+          <ModeToggle label="Signal" value={signalMode} options={["absolute","error"] as const} onChange={setSignalMode} />
           <div className="font-mono text-zinc-600">t = {(t*1e6).toFixed(1)} µs</div>
         </div>
       </header>
@@ -116,7 +124,7 @@ export function IndexPage() {
           }
           right={
             <section className="h-full overflow-auto bg-white border rounded-md p-2">
-              <TimePlots data={viewData} toggles={effectiveTime} cursorIdx={cursorIdx} onCursorIdx={setCursorIdx} />
+              <TimePlots data={timeData} toggles={effectiveTime} cursorIdx={cursorIdx} onCursorIdx={setCursorIdx} signalMode={signalMode} />
             </section>
           }
         />
