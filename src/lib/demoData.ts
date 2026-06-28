@@ -89,7 +89,7 @@ function buildPattern(N: number, dt: number): Dataset {
 }
 
 // First-order lag filter to simulate dynamics.
-function lag(src: Float64Array, alpha: number): Float64Array {
+export function lag(src: Float64Array, alpha: number): Float64Array {
   const out = new Float64Array(src.length);
   out[0] = src[0];
   for (let i = 1; i < src.length; i++) {
@@ -98,7 +98,7 @@ function lag(src: Float64Array, alpha: number): Float64Array {
   return out;
 }
 
-function addNoise(src: Float64Array, amp: number, seed = 1): Float64Array {
+export function addNoise(src: Float64Array, amp: number, seed = 1): Float64Array {
   // Deterministic pseudo-noise
   const out = new Float64Array(src.length);
   let s = seed;
@@ -111,7 +111,7 @@ function addNoise(src: Float64Array, amp: number, seed = 1): Float64Array {
 }
 
 // Second-order-ish response: lagged signal with a small overshoot toward step changes.
-function overshoot(src: Float64Array, amount: number, decay: number): Float64Array {
+export function overshoot(src: Float64Array, amount: number, decay: number): Float64Array {
   const out = new Float64Array(src.length);
   let v = 0;
   out[0] = src[0];
@@ -124,7 +124,7 @@ function overshoot(src: Float64Array, amount: number, decay: number): Float64Arr
 }
 
 // Add a slow sinusoidal ripple + constant bias to simulate sensor drift.
-function addRipple(src: Float64Array, amp: number, period: number, bias: number): Float64Array {
+export function addRipple(src: Float64Array, amp: number, period: number, bias: number): Float64Array {
   const out = new Float64Array(src.length);
   for (let i = 0; i < src.length; i++) {
     out[i] = src[i] + bias + amp * Math.sin((i / period) * Math.PI * 2);
@@ -232,7 +232,7 @@ function splitSeries(s: Dataset, mode: DomainMode, alpha: number): Dataset {
   };
 }
 
-function bounds(xs: Float64Array, ys: Float64Array, padFrac = 0.15) {
+export function bounds(xs: Float64Array, ys: Float64Array, padFrac = 0.15) {
   let xMin = +Infinity, xMax = -Infinity, yMin = +Infinity, yMax = -Infinity;
   for (let i = 0; i < xs.length; i++) {
     if (xs[i] < xMin) xMin = xs[i];
